@@ -4066,6 +4066,13 @@ struct qouted_t
    T& val;
 };
 
+template <class T, class F>
+struct lambda_t
+{
+   T& val;
+   F f;
+};
+
 namespace glz::detail
 {
    template <class T>
@@ -4092,6 +4099,29 @@ namespace glz::detail
          dump<'"'>(args...);
       }
    };
+
+   template <class T, class U>
+   struct from_json<lambda_t<T, U>>
+   {
+      template <auto Opts>
+      static void op(auto&& value, auto&&... args)
+      {
+         skip_ws<Opts>(args...);
+         read<json>::op<Opts>(value.val, args...);
+         value.f(value.val);
+      }
+   };
+
+   template <class T, class U>
+   struct to_json<lambda_t<T, U>>
+   {
+      template <auto Opts>
+      static void op(auto&& value, is_context auto&& ctx, auto&&... args) noexcept
+      {
+         value.f(value.val);
+         write<json>::op<Opts>(value.val, ctx, args...);
+      }
+   };
 }
 
 template <auto MemPtr>
@@ -4099,6 +4129,25 @@ constexpr decltype(auto) qouted()
 {
    return [](auto&& val) { return qouted_t<std::decay_t<decltype(val.*MemPtr)>>{val.*MemPtr}; };
 }
+
+template <auto MemPtr, class F>
+constexpr decltype(auto) lambda(F&& f)
+{
+   return [f = std::forward<F>(f)](auto&& val) {
+      return lambda_t<std::decay_t<decltype(val.*MemPtr)>, F>{val.*MemPtr, f};
+   };
+}
+
+struct B
+{
+   double x;
+};
+
+template <>
+struct glz::meta<B>
+{
+   static constexpr auto value = object("x", lambda<&B::x>([](auto& val) { val += 1; }));
+};
 
 struct A
 {
@@ -4113,7 +4162,7 @@ struct glz::meta<A>
 };
 
 suite lamda_wrapper = [] {
-   "lamda_wrapper"_test = [] {
+   "quoted_wrapper"_test = [] {
       A a{3.14};
       std::string buffer{};
       glz::write_json(a, buffer);
@@ -4122,6 +4171,17 @@ suite lamda_wrapper = [] {
       buffer = R"({"x":"999.2"})";
       expect(glz::read_json(a, buffer) == glz::error_code::none);
       expect(a.x == 999.2);
+   };
+   "lambda_wrapper"_test = [] {
+      B b{3.14};
+      std::string buffer2{};
+      glz::write_json(b, buffer2);
+      std::cout << buffer2 << std::endl;
+      expect(buffer2 == R"({"x":4.140000000000001})");
+
+      buffer2 = R"({"x":999.2})";
+      expect(glz::read_json(b, buffer2) == glz::error_code::none);
+      expect(b.x == 1000.2);
    };
 };
 

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <array>
 #include <cassert>
 #include <limits>
@@ -7,6 +9,7 @@
 #include "glaze/frozen/random.hpp"
 #include "glaze/util/expected.hpp"
 #include "glaze/util/string_cmp.hpp"
+#include "glaze/util/string_view.hpp"
 
 namespace glz
 {
@@ -114,9 +117,26 @@ namespace glz
 
       inline bool sv_neq(const sv s0, const sv s1) noexcept { return s0 != s1; }
 
+      template <typename T, std::size_t N, std::size_t... Ns>
+      constexpr std::array<T, N> make_array_impl(std::initializer_list<T> t, std::index_sequence<Ns...>)
+      {
+         return std::array<T, N>{*(t.begin() + Ns)...};
+      }
+
+      template <typename T, std::size_t N>
+      constexpr std::array<T, N> make_array(std::initializer_list<T> t)
+      {
+         return make_array_impl<T, N>(t, std::make_index_sequence<N>());
+      }
+
       template <class Value, std::size_t N, class HashType, bool allow_hash_check = false>
       struct naive_map
       {
+         constexpr naive_map() = default;
+         constexpr naive_map(std::initializer_list<std::pair<sv, Value>> pairs)
+            : items{make_array<std::pair<sv, Value>, N>(pairs)}
+         {}
+
          static_assert(N <= 20);
          static constexpr size_t m = naive_bucket_size<N>();
          HashType seed{};
@@ -169,13 +189,12 @@ namespace glz
          if (pairs.size() != N) {
             glaze_error("pairs.size() != N");
          }
-         naive_map<T, N, HashType, allow_hash_check> ht{};
+         naive_map<T, N, HashType, allow_hash_check> ht{pairs};
          constexpr size_t m = naive_bucket_size<N>();
 
          std::array<std::string_view, N> keys{};
          size_t i = 0;
          for (const auto& pair : pairs) {
-            ht.items[i] = pair;
             keys[i] = pair.first;
             ++i;
          }
